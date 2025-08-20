@@ -65,11 +65,16 @@ What It Shows: Nodes with the lowest availability in last 30 days.
 Implementation:
 
 SELECT TOP 5
-  N.Caption AS [Node],
-  ROUND(100 - (N.DownTimePercent * 100),2) AS [Availability %],
-  N.Location
-FROM Orion.Nodes N
+    N.Caption AS [Node],
+    ROUND(AVG(A.Availability),2) AS [Availability %],
+    ISNULL(N.Location,'Unassigned') AS [Location]
+FROM Orion.AvailabilityHistory A
+JOIN Orion.Nodes N ON N.NodeID = A.EntityID
+WHERE A.EntityType = 'Orion.Nodes'
+  AND A.DateTime >= DATEADD(day,-30,GETUTCDATE())
+GROUP BY N.Caption, N.Location
 ORDER BY [Availability %] ASC
+
 
 5. Availability by Region/Business Unit
 
