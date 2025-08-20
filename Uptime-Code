@@ -1,0 +1,133 @@
+Perfect 👍 For a leadership dashboard in SolarWinds, you want something clean, high-level, and SLA-focused (not too technical). Leadership usually wants quick insights (green = good, red = bad), trends over time, and SLA compliance. Here’s how you can build it:
+
+🎯 Leadership Uptime Dashboard Layout (SolarWinds Modern Dashboards)
+1. Overall Uptime KPI
+
+Widget Type: KPI Number or Gauge
+
+What It Shows:
+
+Overall uptime across all monitored nodes (last 30 days).
+
+Target SLA threshold (e.g., 99.9%) shown as baseline.
+
+Implementation:
+
+Create a SWQL query widget using something like:
+
+SELECT ROUND(AVG(100 - (N.DownTimePercent * 100)),2) AS [Availability %]
+FROM Orion.Nodes N
+
+2. SLA Compliance Indicator
+
+Widget Type: KPI / Pie Chart
+
+What It Shows: % of nodes meeting SLA (e.g., >99.9%) vs. those that don’t.
+
+Implementation:
+
+SELECT 
+  CASE 
+    WHEN ROUND(100 - (N.DownTimePercent * 100),2) >= 99.9 THEN 'In SLA'
+    ELSE 'Out of SLA'
+  END AS [SLA Status],
+  COUNT(*) AS [Node Count]
+FROM Orion.Nodes N
+GROUP BY 
+  CASE 
+    WHEN ROUND(100 - (N.DownTimePercent * 100),2) >= 99.9 THEN 'In SLA'
+    ELSE 'Out of SLA'
+  END
+
+3. Availability Trend (Last 90 Days)
+
+Widget Type: Line Chart
+
+What It Shows: Average availability trend per day (or week).
+
+Implementation:
+
+SELECT 
+  TOLOCAL(DATETRUNC('day', A.DateTime)) AS [Date],
+  ROUND(AVG(A.Availability),2) AS [Avg Availability %]
+FROM Orion.AvailabilityHistory A
+WHERE A.EntityType = 'Orion.Nodes'
+  AND A.DateTime > DATEADD(day, -90, GETUTCDATE())
+GROUP BY TOLOCAL(DATETRUNC('day', A.DateTime))
+ORDER BY [Date]
+
+4. Top 5 Problematic Nodes
+
+Widget Type: Table
+
+What It Shows: Nodes with the lowest availability in last 30 days.
+
+Implementation:
+
+SELECT TOP 5
+  N.Caption AS [Node],
+  ROUND(100 - (N.DownTimePercent * 100),2) AS [Availability %],
+  N.Location
+FROM Orion.Nodes N
+ORDER BY [Availability %] ASC
+
+5. Availability by Region/Business Unit
+
+Widget Type: Bar Chart or Donut
+
+What It Shows: Uptime grouped by location, region, or custom property (e.g., Business Unit).
+
+Implementation:
+(Assuming you use the CustomProperties.Region field)
+
+SELECT 
+  N.CustomProperties.Region,
+  ROUND(AVG(100 - (N.DownTimePercent * 100)),2) AS [Availability %]
+FROM Orion.Nodes N
+GROUP BY N.CustomProperties.Region
+ORDER BY [Availability %] ASC
+
+6. Recent Critical Outages
+
+Widget Type: Event Table
+
+What It Shows: Last 10 node-down events (with timestamps and duration).
+
+Implementation:
+
+SELECT TOP 10
+  N.Caption AS [Node],
+  E.EventTime,
+  E.Message
+FROM Orion.Events E
+JOIN Orion.Nodes N ON E.NetworkNode = N.NodeID
+WHERE E.EventType = 1  -- Node Down
+ORDER BY E.EventTime DESC
+
+📊 Recommended Layout
+
+Top Row:
+
+Overall Uptime KPI
+
+SLA Compliance Pie
+
+Middle Row:
+
+Availability Trend (line chart)
+
+Availability by Region (bar/pie)
+
+Bottom Row:
+
+Top 5 Problematic Nodes (table)
+
+Recent Critical Outages (table)
+
+👉 This will give leadership a clean, SLA-driven dashboard that answers:
+
+"Are we meeting our uptime goals?"
+
+"Where are we struggling?"
+
+"Are there trends or repeat offenders?"
