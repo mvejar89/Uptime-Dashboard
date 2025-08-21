@@ -159,3 +159,21 @@ Regional breakdown
 Trend snapshot via 30d vs 90d KPIs
 
 Quick identification of problem nodes and recent outages
+
+
+Ask ChatGPT to modify this for the last three months: 
+SELECT 
+    ROUND(
+        (SUM(Availability) / COUNT(Availability)), 3
+    ) AS [Overall Uptime Percentage (Last 30 Days)]
+FROM (
+    SELECT 
+        n.NodeID,
+        n.Caption,
+        a.Availability
+    FROM Orion.Nodes n
+    JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
+    WHERE MONTH(a.DateTime) = MONTH(GETDATE() - 1)
+      AND YEAR(a.DateTime) = YEAR(GETDATE() - 1)
+) AS UptimeData
+
