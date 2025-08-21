@@ -181,11 +181,11 @@ Result:
 
 SELECT 
     ROUND(
-        (SUM(RT.Availability) / COUNT(RT.Availability)), 2
+        (SUM(RT.Availability) * 1.0 / COUNT(RT.Availability)), 2
     ) AS [Overall Availability %]
 FROM Orion.ResponseTime RT
 JOIN Orion.Nodes N ON N.NodeID = RT.NodeID
-WHERE 
-    MONTH(RT.DateTime) = MONTH(DATEADD(MONTH, -1, GETDATE()))
-    AND YEAR(RT.DateTime) = YEAR(DATEADD(MONTH, -1, GETDATE()))
+WHERE RT.DateTime >= DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()) - 1, 0)
+  AND RT.DateTime < DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)
+
 
