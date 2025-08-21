@@ -181,10 +181,11 @@ Result:
 
 SELECT 
     ROUND(
-        AVG(a.Availability), 3
-    ) AS [Overall Uptime Percentage (Last 3 Months)]
-FROM Orion.Nodes n
-JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
-WHERE a.DateTime >= ADDMONTHS(GETDATE(), -3)
-  AND a.DateTime <= GETDATE()
+        (SUM(RT.Availability) / COUNT(RT.Availability)), 2
+    ) AS [Overall Availability %]
+FROM Orion.ResponseTime RT
+JOIN Orion.Nodes N ON N.NodeID = RT.NodeID
+WHERE 
+    MONTH(RT.DateTime) = MONTH(DATEADD(MONTH, -1, GETDATE()))
+    AND YEAR(RT.DateTime) = YEAR(DATEADD(MONTH, -1, GETDATE()))
 
