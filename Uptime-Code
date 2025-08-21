@@ -181,11 +181,17 @@ Result:
 
 SELECT 
     ROUND(
-        (SUM(RT.Availability) * 1.0 / COUNT(RT.Availability)), 2
-    ) AS [Overall Availability %]
-FROM Orion.ResponseTime RT
-JOIN Orion.Nodes N ON N.NodeID = RT.NodeID
-WHERE RT.DateTime >= DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()) - 1, 0)
-  AND RT.DateTime < DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)
+        (SUM(Availability) / COUNT(Availability)), 3
+    ) AS [Overall Uptime Percentage (Last 30 Days)]
+FROM (
+    SELECT 
+        n.NodeID,
+        n.Caption,
+        a.Availability
+    FROM Orion.Nodes n
+    JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
+    WHERE MONTH(a.DateTime) = MONTH(GETDATE() - 1)
+      AND YEAR(a.DateTime) = YEAR(GETDATE() - 1)
+) AS UptimeData
 
 
