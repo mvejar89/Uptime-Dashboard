@@ -181,31 +181,25 @@ Result:
 
 -- Corrected SWQL query for previous month's average uptime
 SELECT 
-    ROUND(
-        AVG(CAST(a.Availability AS FLOAT)), 3
-    ) AS [Overall Uptime Percentage (Previous Month)]
+    ROUND(AVG(a.Availability), 3) AS [Overall Uptime Percentage (Previous Month)]
 FROM Orion.Nodes n
-JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
-WHERE a.DateTime >= DATEFROMPARTS(YEAR(DATEADD(MONTH, -1, GETDATE())), MONTH(DATEADD(MONTH, -1, GETDATE())), 1)
-  AND a.DateTime < DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
-  AND n.Status = 1  -- Only active nodes
-
--- Alternative version using DATEADD for cleaner syntax:
-/*
-SELECT 
-    ROUND(
-        AVG(CAST(a.Availability AS FLOAT)), 3
-    ) AS [Overall Uptime Percentage (Previous Month)]
-FROM Orion.Nodes n
-JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
-WHERE a.DateTime >= DATEADD(DAY, 1, EOMONTH(GETDATE(), -2))
-  AND a.DateTime < DATEADD(DAY, 1, EOMONTH(GETDATE(), -1))
+INNER JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
+WHERE MONTH(a.DateTime) = MONTH(ADDMONTH(-1, GETDATE()))
+  AND YEAR(a.DateTime) = YEAR(ADDMONTH(-1, GETDATE()))
   AND n.Status = 1
-*/
 
--- For debugging: Check what date range you're actually querying
+-- Alternative approach using date range (more precise for full month):
 SELECT 
-    'Previous Month Start' AS Period,
-    DATEFROMPARTS(YEAR(DATEADD(MONTH, -1, GETDATE())), MONTH(DATEADD(MONTH, -1, GETDATE())), 1) AS StartDate,
-    DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1) AS EndDate
+    ROUND(AVG(a.Availability), 3) AS [Overall Uptime Percentage (Previous Month)]
+FROM Orion.Nodes n
+INNER JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
+WHERE a.DateTime >= TODATE(YEAR(ADDMONTH(-1, GETDATE())), MONTH(ADDMONTH(-1, GETDATE())), 1)
+  AND a.DateTime < TODATE(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+  AND n.Status = 1
 
+-- For debugging: Check your date calculations
+SELECT 
+    GETDATE() AS CurrentDate,
+    ADDMONTH(-1, GETDATE()) AS LastMonth,
+    MONTH(ADDMONTH(-1, GETDATE())) AS LastMonthNumber,
+    YEAR(ADDMONTH(-1, GETDATE())) AS LastMonthYear
