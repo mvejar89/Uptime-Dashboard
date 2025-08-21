@@ -198,25 +198,43 @@ WHERE a.DateTime >= TODATE(YEAR(ADDMONTH(-1, GETDATE())), MONTH(ADDMONTH(-1, GET
   AND n.Status = 1
 
 -- For debugging: Check your date calculations
--- Date Range Verification Query for SWQL
-SELECT 
-    'Previous Month Date Range' AS [Verification],
-    MONTH(ADDMONTH(-1, GETDATE())) AS [Previous Month Number],
-    YEAR(ADDMONTH(-1, GETDATE())) AS [Previous Month Year],
-    MIN(a.DateTime) AS [Earliest Data Found],
-    MAX(a.DateTime) AS [Latest Data Found],
-    COUNT(*) AS [Total Records]
-FROM Orion.ResponseTime a
+
+
+-- Query for all requested time ranges:
+
+-- Current Month Uptime
+SELECT ROUND(AVG(a.Availability), 3) AS [Overall Uptime Percentage (Current Month)]
+FROM Orion.Nodes n
+INNER JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
+WHERE MONTH(a.DateTime) = MONTH(GETDATE())
+  AND YEAR(a.DateTime) = YEAR(GETDATE())
+  AND n.Status = 1
+
+-- Last 3 Months Uptime
+SELECT ROUND(AVG(a.Availability), 3) AS [Overall Uptime Percentage (Last 3 Months)]
+FROM Orion.Nodes n
+INNER JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
+WHERE a.DateTime >= ADDMONTH(-3, GETDATE())
+  AND n.Status = 1
+
+-- Last 6 Months Uptime
+SELECT ROUND(AVG(a.Availability), 3) AS [Overall Uptime Percentage (Last 6 Months)]
+FROM Orion.Nodes n
+INNER JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
+WHERE a.DateTime >= ADDMONTH(-6, GETDATE())
+  AND n.Status = 1
+
+-- Last Year Uptime
+SELECT ROUND(AVG(a.Availability), 3) AS [Overall Uptime Percentage (Last Year)]
+FROM Orion.Nodes n
+INNER JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
+WHERE a.DateTime >= ADDMONTH(-12, GETDATE())
+  AND n.Status = 1
+
+-- Previous Month (your original query)
+SELECT ROUND(AVG(a.Availability), 3) AS [Overall Uptime Percentage (Previous Month)]
+FROM Orion.Nodes n
+INNER JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
 WHERE MONTH(a.DateTime) = MONTH(ADDMONTH(-1, GETDATE()))
   AND YEAR(a.DateTime) = YEAR(ADDMONTH(-1, GETDATE()))
-
--- Quick current vs previous month comparison
-SELECT 
-    'Current Month' AS [Period],
-    MONTH(GETDATE()) AS [Month],
-    YEAR(GETDATE()) AS [Year]
-UNION ALL
-SELECT 
-    'Previous Month' AS [Period],
-    MONTH(ADDMONTH(-1, GETDATE())) AS [Month],
-    YEAR(ADDMONTH(-1, GETDATE())) AS [Year]
+  AND n.Status = 1
