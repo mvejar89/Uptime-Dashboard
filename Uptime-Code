@@ -179,19 +179,33 @@ FROM (
 
 Result:
 
+-- Corrected SWQL query for previous month's average uptime
 SELECT 
     ROUND(
-        (SUM(Availability) / COUNT(Availability)), 3
-    ) AS [Overall Uptime Percentage (Last 30 Days)]
-FROM (
-    SELECT 
-        n.NodeID,
-        n.Caption,
-        a.Availability
-    FROM Orion.Nodes n
-    JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
-    WHERE MONTH(a.DateTime) = MONTH(GETDATE() - 1)
-      AND YEAR(a.DateTime) = YEAR(GETDATE() - 1)
-) AS UptimeData
+        AVG(CAST(a.Availability AS FLOAT)), 3
+    ) AS [Overall Uptime Percentage (Previous Month)]
+FROM Orion.Nodes n
+JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
+WHERE a.DateTime >= DATEFROMPARTS(YEAR(DATEADD(MONTH, -1, GETDATE())), MONTH(DATEADD(MONTH, -1, GETDATE())), 1)
+  AND a.DateTime < DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+  AND n.Status = 1  -- Only active nodes
 
+-- Alternative version using DATEADD for cleaner syntax:
+/*
+SELECT 
+    ROUND(
+        AVG(CAST(a.Availability AS FLOAT)), 3
+    ) AS [Overall Uptime Percentage (Previous Month)]
+FROM Orion.Nodes n
+JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
+WHERE a.DateTime >= DATEADD(DAY, 1, EOMONTH(GETDATE(), -2))
+  AND a.DateTime < DATEADD(DAY, 1, EOMONTH(GETDATE(), -1))
+  AND n.Status = 1
+*/
+
+-- For debugging: Check what date range you're actually querying
+SELECT 
+    'Previous Month Start' AS Period,
+    DATEFROMPARTS(YEAR(DATEADD(MONTH, -1, GETDATE())), MONTH(DATEADD(MONTH, -1, GETDATE())), 1) AS StartDate,
+    DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1) AS EndDate
 
