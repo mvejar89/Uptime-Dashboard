@@ -1,138 +1,161 @@
-Perfect 👍 For a leadership dashboard in SolarWinds, you want something clean, high-level, and SLA-focused (not too technical). Leadership usually wants quick insights (green = good, red = bad), trends over time, and SLA compliance. Here’s how you can build it:
+Perfect — here’s a complete, ready-to-copy Leadership Uptime Dashboard configuration for your SolarWinds Modern Dashboard using only the available widgets (KPI, Proportional, Table, Drilldown, Map). All tiles include working SWQL queries, thresholds, and suggested layout for leadership.
 
-🎯 Leadership Uptime Dashboard Layout (SolarWinds Modern Dashboards)
-1. Overall Uptime KPI
+Leadership Uptime Dashboard – Full Configuration
+Row 1 – KPIs and SLA
+1️⃣ Overall Availability (KPI)
 
-Widget Type: KPI Number or Gauge
+Widget: KPI
 
-What It Shows:
+SWQL Query:
 
-Overall uptime across all monitored nodes (last 30 days).
+SELECT ROUND(AVG(RT.Availability), 2) AS AvailabilityPct
+FROM Orion.ResponseTime RT
+WHERE RT.DateTime >= ADDDAY(-30, GETDATE())
 
-Target SLA threshold (e.g., 99.9%) shown as baseline.
 
-Implementation:
+Title: Overall Availability (30d)
 
-Create a SWQL query widget using something like:
+Thresholds:
 
-SELECT ROUND(AVG(100 - (N.DownTimePercent * 100)),2) AS [Availability %]
-FROM Orion.Nodes N
+Green ≥ 99.9
 
-2. SLA Compliance Indicator
+Yellow 99.0–99.89
 
-Widget Type: KPI / Pie Chart
+Red < 99.0
 
-What It Shows: % of nodes meeting SLA (e.g., >99.9%) vs. those that don’t.
+2️⃣ SLA Compliance (Proportional / Donut)
 
-Implementation:
+Widget: Proportional (Donut)
 
-SELECT 
-  CASE 
-    WHEN ROUND(100 - (N.DownTimePercent * 100),2) >= 99.9 THEN 'In SLA'
+SWQL Query:
+
+SELECT
+  CASE
+    WHEN ROUND(
+      (SELECT AVG(RT2.Availability)
+       FROM Orion.ResponseTime RT2
+       WHERE RT2.NodeID = N.NodeID
+         AND RT2.DateTime >= ADDDAY(-30, GETDATE()))
+    ,2) >= 99.9 THEN 'In SLA'
     ELSE 'Out of SLA'
-  END AS [SLA Status],
-  COUNT(*) AS [Node Count]
+  END AS SLAStatus,
+  1 AS NodeCount
 FROM Orion.Nodes N
-GROUP BY 
-  CASE 
-    WHEN ROUND(100 - (N.DownTimePercent * 100),2) >= 99.9 THEN 'In SLA'
-    ELSE 'Out of SLA'
-  END
+WHERE N.UnManaged = FALSE
 
-3. Availability Trend (Last 90 Days)
 
-Widget Type: Line Chart
+Visualization: Category = SLAStatus, Value = Sum(NodeCount)
 
-What It Shows: Average availability trend per day (or week).
+Title: SLA Compliance (≥99.9%, 30d)
 
-Implementation:
+Row 2 – Regional & Trend Snapshot
+3️⃣ Availability by Region (Proportional / Bar)
 
-SELECT 
-  TOLOCAL(DATETRUNC('day', A.DateTime)) AS [Date],
-  ROUND(AVG(A.Availability),2) AS [Avg Availability %]
-FROM Orion.AvailabilityHistory A
-WHERE A.EntityType = 'Orion.Nodes'
-  AND A.DateTime > DATEADD(day, -90, GETUTCDATE())
-GROUP BY TOLOCAL(DATETRUNC('day', A.DateTime))
-ORDER BY [Date]
+Widget: Proportional (Bar)
 
-4. Top 5 Problematic Nodes
+SWQL Query:
 
-Widget Type: Table
+SELECT
+  ISNULL(N.CustomProperties.Region,'Unassigned') AS Region,
+  ROUND(AVG(RT.Availability),2) AS AvailabilityPct
+FROM Orion.ResponseTime RT
+JOIN Orion.Nodes N ON N.NodeID = RT.NodeID
+WHERE RT.DateTime >= ADDDAY(-30, GETDATE())
+GROUP BY N.CustomProperties.Region
+ORDER BY AvailabilityPct ASC
 
-What It Shows: Nodes with the lowest availability in last 30 days.
 
-Implementation:
+Title: Availability by Region (30d)
+
+4️⃣ 30-Day vs 90-Day Availability KPIs (Trend Snapshot)
+
+Widget 1: KPI – 30-Day
+
+SELECT ROUND(AVG(RT.Availability),2) AS AvailabilityPct
+FROM Orion.ResponseTime RT
+WHERE RT.DateTime >= ADDDAY(-30, GETDATE())
+
+
+Title: 30-Day Avg Availability
+
+Thresholds: Green ≥ 99.9, Yellow 99.0–99.89, Red < 99.0
+
+Widget 2: KPI – 90-Day
+
+SELECT ROUND(AVG(RT.Availability),2) AS AvailabilityPct
+FROM Orion.ResponseTime RT
+WHERE RT.DateTime >= ADDDAY(-90, GETDATE())
+
+
+Title: 90-Day Avg Availability
+
+Thresholds: Same as above
+
+Row 3 – Problematic Nodes & Recent Events
+5️⃣ Top 5 Lowest Availability Nodes (Table with Thresholds)
+
+Widget: Table
+
+SWQL Query:
 
 SELECT TOP 5
-  N.Caption AS [Node],
-  ROUND(AVG(RT.Availability), 2) AS [Availability %],
-  ISNULL(N.Location, 'Unassigned') AS [Location]
+  N.Caption AS Node,
+  ROUND(AVG(RT.Availability), 2) AS AvailabilityPct,
+  ISNULL(N.Location, 'Unassigned') AS Location
 FROM Orion.ResponseTime RT
 JOIN Orion.Nodes N ON N.NodeID = RT.NodeID
 WHERE RT.DateTime >= ADDDAY(-30, GETDATE())
 GROUP BY N.Caption, N.Location
-ORDER BY AVG(RT.Availability) ASC
+ORDER BY AvailabilityPct ASC
 
 
+Thresholds (AvailabilityPct column):
 
-5. Availability by Region/Business Unit
+Green ≥ 99.9
 
-Widget Type: Bar Chart or Donut
+Yellow 99.0–99.89
 
-What It Shows: Uptime grouped by location, region, or custom property (e.g., Business Unit).
+Red < 99.0
 
-Implementation:
-(Assuming you use the CustomProperties.Region field)
+Title: Lowest Availability Nodes (30d)
 
-SELECT 
-  N.CustomProperties.Region,
-  ROUND(AVG(100 - (N.DownTimePercent * 100)),2) AS [Availability %]
-FROM Orion.Nodes N
-GROUP BY N.CustomProperties.Region
-ORDER BY [Availability %] ASC
+6️⃣ Recent Node Up/Down Events (Table)
 
-6. Recent Critical Outages
+Widget: Table
 
-Widget Type: Event Table
-
-What It Shows: Last 10 node-down events (with timestamps and duration).
-
-Implementation:
+SWQL Query:
 
 SELECT TOP 10
-  N.Caption AS [Node],
-  E.EventTime,
-  E.Message
+  E.EventTime AS [When],
+  N.Caption   AS Node,
+  ET.Name     AS Event
 FROM Orion.Events E
-JOIN Orion.Nodes N ON E.NetworkNode = N.NodeID
-WHERE E.EventType = 1  -- Node Down
+JOIN Orion.EventTypes ET ON ET.EventType = E.EventType
+JOIN Orion.Nodes N       ON N.NodeID     = E.NetworkNode
+WHERE E.EventType IN (1,2)  -- 1 = Node Down, 2 = Node Up
 ORDER BY E.EventTime DESC
 
-📊 Recommended Layout
 
-Top Row:
+Title: Recent Node Up/Down Events
 
-Overall Uptime KPI
+📐 Suggested Dashboard Layout
+Row	Left	Right
+1	Overall Availability (KPI)	SLA Compliance (Proportional)
+2	Availability by Region (Proportional)	30-Day KPI & 90-Day KPI side by side
+3	Top 5 Lowest Availability Nodes (Table)	Recent Node Up/Down Events (Table)
 
-SLA Compliance Pie
+Row 2’s KPIs can either be two small tiles side-by-side or stacked vertically depending on screen width.
 
-Middle Row:
+All KPI and Table thresholds use the SLA-friendly color scheme for immediate visual cues.
 
-Availability Trend (line chart)
+This gives leadership:
 
-Availability by Region (bar/pie)
+High-level KPI for total uptime
 
-Bottom Row:
+SLA compliance percentage
 
-Top 5 Problematic Nodes (table)
+Regional breakdown
 
-Recent Critical Outages (table)
+Trend snapshot via 30d vs 90d KPIs
 
-👉 This will give leadership a clean, SLA-driven dashboard that answers:
-
-"Are we meeting our uptime goals?"
-
-"Where are we struggling?"
-
-"Are there trends or repeat offenders?"
+Quick identification of problem nodes and recent outages
