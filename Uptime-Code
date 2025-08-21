@@ -238,3 +238,312 @@ INNER JOIN Orion.ResponseTime a ON n.NodeID = a.NodeID
 WHERE MONTH(a.DateTime) = MONTH(ADDMONTH(-1, GETDATE()))
   AND YEAR(a.DateTime) = YEAR(ADDMONTH(-1, GETDATE()))
   AND n.Status = 1
+
+
+-- ==================================================
+-- SOLARWINDS MODERN DASHBOARD QUERIES
+-- Organized by Widget Type: KPI, Table, Drilldown, Proportional & Map
+-- ==================================================
+
+-- ==================================================
+-- KPI WIDGETS (Summary Numbers for Executive View)
+-- ==================================================
+
+-- KPI 1: Overall Infrastructure Availability (Current Month)
+SELECT 
+    ROUND(AVG(ResponseTime.Availability), 2) as [Overall Availability %]
+FROM Orion.ResponseTime
+WHERE DateTime >= DATEADD(day, -DAY(GETDATE())+1, CAST(GETDATE() AS DATE))
+    AND DateTime < DATEADD(month, 1, DATEADD(day, -DAY(GETDATE())+1, CAST(GETDATE() AS DATE)))
+
+-- KPI 2: Active Critical Alerts Count
+SELECT 
+    COUNT(*) as [Critical Alerts]
+FROM Orion.AlertActive
+WHERE AlertDefID IN (
+    SELECT AlertDefID 
+    FROM Orion.AlertDefinitions 
+    WHERE Severity = 2
+)
+
+-- KPI 3: Services Up Percentage
+SELECT 
+    ROUND((COUNT(CASE WHEN Status = 1 THEN 1 END) * 100.0 / COUNT(*)), 1) as [Services Up %]
+FROM Orion.Nodes
+WHERE ObjectSubType IN ('SNMP', 'WMI')
+
+-- KPI 4: Mean Time to Recovery (MTTR) in Hours
+SELECT 
+    ROUND(AVG(DATEDIFF(minute, TriggeredDateTime, AcknowledgedDateTime)) / 60.0, 1) as [MTTR Hours]
+FROM Orion.AlertHistory
+WHERE TriggeredDateTime >= DATEADD(day, -30, GETDATE())
+    AND AcknowledgedDateTime IS NOT NULL
+    AND AlertDefID IN (
+        SELECT AlertDefID FROM Orion.AlertDefinitions WHERE Severity >= 1
+    )
+
+-- KPI 5: SLA Compliance Percentage
+SELECT 
+    ROUND(
+        (COUNT(CASE WHEN AvgAvailability >= 99.5 THEN 1 END) * 100.0 / COUNT(*)), 1
+    ) as [SLA Compliance %]
+FROM (
+    SELECT 
+        n.NodeID,
+        AVG(rt.Availability) as AvgAvailability
+    FROM Orion.Nodes n
+    INNER JOIN Orion.ResponseTime rt ON n.NodeID = rt.NodeID
+    WHERE rt.DateTime >= DATEADD(day, -30, GETDATE())
+        AND n.ObjectSubType IN ('SNMP', 'WMI')
+    GROUP BY n.NodeID
+) sub
+
+-- ==================================================
+-- TABLE WIDGETS (Detailed Information Lists)
+-- ==================================================
+
+-- TABLE 1: Critical Services Status Overview
+SELECT 
+    n.Caption as [Service Name],
+    CASE 
+        WHEN n.Status = 1 THEN 'Up'
+        WHEN n.Status = 2 THEN 'Down' 
+        WHEN n.Status = 3 THEN 'Warning'
+        ELSE 'Unknown'
+    END as [Status],
+    ROUND(AVG(rt.Availability), 2) as [30-Day Availability %],
+    n.IP_Address as [IP Address],
+    ISNULL(n.CustomProperties.Location, 'Not Set') as [Location]
+FROM Orion.Nodes n
+LEFT JOIN Orion.ResponseTime rt ON n.NodeID = rt.NodeID 
+    AND rt.DateTime >= DATEADD(day, -30, GETDATE())
+WHERE n.ObjectSubType IN ('SNMP', 'WMI')
+GROUP BY n.Caption, n.Status, n.IP_Address, n.CustomProperties.Location, n.NodeID
+ORDER BY [30-Day Availability %] ASC
+
+-- TABLE 2: Recent Critical Incidents
+SELECT TOP 10
+    ad.Name as [Alert Name],
+    ah.ObjectName as [Affected Service],
+    ah.TriggeredDateTime as [Started],
+    CASE 
+        WHEN ah.AcknowledgedDateTime IS NULL THEN 'ACTIVE'
+        ELSE CAST(ah.AcknowledgedDateTime as VARCHAR)
+    END as [Resolved],
+    DATEDIFF(minute, ah.TriggeredDateTime, ISNULL(ah.AcknowledgedDateTime, GETDATE())) as [Duration (Min)],
+    ah.Message as [Details]
+FROM Orion.AlertHistory ah
+INNER JOIN Orion.AlertDefinitions ad ON ah.AlertDefID = ad.AlertDefID
+WHERE ah.TriggeredDateTime >= DATEADD(day, -7, GETDATE())
+    AND ad.Severity = 2  -- Critical only
+ORDER BY ah.TriggeredDateTime DESC
+
+-- TABLE 3: Top 10 Services by Availability
+SELECT TOP 10
+    n.Caption as [Service Name],
+    ROUND(AVG(rt.Availability), 3) as [Availability %],
+    COUNT(CASE WHEN rt.Availability < 100 THEN 1 END) as [Downtime Events],
+    CASE 
+        WHEN n.Status = 1 THEN 'Up'
+        WHEN n.Status = 2 THEN 'Down'
+        WHEN n.Status = 3 THEN 'Warning'
+        ELSE 'Unknown'
+    END as [Current Status],
+    ISNULL(n.CustomProperties.ServiceTier, 'Standard') as [Service Tier]
+FROM Orion.Nodes n
+INNER JOIN Orion.ResponseTime rt ON n.NodeID = rt.NodeID
+WHERE rt.DateTime >= DATEADD(day, -30, GETDATE())
+    AND n.ObjectSubType IN ('SNMP', 'WMI')
+GROUP BY n.Caption, n.Status, n.CustomProperties.ServiceTier
+ORDER BY [Availability %] DESC
+
+-- TABLE 4: Problem Services (Most Incidents)
+SELECT TOP 10
+    n.Caption as [Service Name],
+    COUNT(*) as [Incident Count],
+    ROUND(AVG(DATEDIFF(minute, ah.TriggeredDateTime, ah.AcknowledgedDateTime)), 0) as [Avg Resolution (Min)],
+    MAX(ah.TriggeredDateTime) as [Last Incident],
+    ROUND(AVG(rt.Availability), 2) as [Availability %]
+FROM Orion.AlertHistory ah
+INNER JOIN Orion.Nodes n ON ah.ObjectName = n.Caption
+LEFT JOIN Orion.ResponseTime rt ON n.NodeID = rt.NodeID 
+    AND rt.DateTime >= DATEADD(day, -30, GETDATE())
+WHERE ah.TriggeredDateTime >= DATEADD(day, -30, GETDATE())
+    AND ah.AlertDefID IN (
+        SELECT AlertDefID FROM Orion.AlertDefinitions WHERE Severity >= 1
+    )
+GROUP BY n.Caption
+ORDER BY [Incident Count] DESC
+
+-- ==================================================
+-- PROPORTIONAL WIDGETS (Pie Charts / Donuts)
+-- ==================================================
+
+-- PROPORTIONAL 1: Services by Status Distribution
+SELECT 
+    CASE 
+        WHEN Status = 1 THEN 'Up'
+        WHEN Status = 2 THEN 'Down' 
+        WHEN Status = 3 THEN 'Warning'
+        ELSE 'Unknown'
+    END as [Status],
+    COUNT(*) as [Count]
+FROM Orion.Nodes
+WHERE ObjectSubType IN ('SNMP', 'WMI')
+GROUP BY Status
+ORDER BY [Count] DESC
+
+-- PROPORTIONAL 2: Downtime by Service Category
+SELECT 
+    ISNULL(n.CustomProperties.ServiceCategory, 'Uncategorized') as [Category],
+    SUM(CASE WHEN rt.Availability < 100 THEN (100 - rt.Availability) END) as [Downtime Minutes]
+FROM Orion.ResponseTime rt
+INNER JOIN Orion.Nodes n ON rt.NodeID = n.NodeID
+WHERE rt.DateTime >= DATEADD(day, -30, GETDATE())
+    AND n.ObjectSubType IN ('SNMP', 'WMI')
+    AND rt.Availability < 100
+GROUP BY n.CustomProperties.ServiceCategory
+HAVING SUM(CASE WHEN rt.Availability < 100 THEN (100 - rt.Availability) END) > 0
+ORDER BY [Downtime Minutes] DESC
+
+-- PROPORTIONAL 3: SLA Compliance Distribution
+SELECT 
+    CASE 
+        WHEN AvgAvailability >= 99.9 THEN 'Excellent (≥99.9%)'
+        WHEN AvgAvailability >= 99.5 THEN 'Good (≥99.5%)'
+        WHEN AvgAvailability >= 95.0 THEN 'Poor (≥95%)'
+        ELSE 'Critical (<95%)'
+    END as [SLA Category],
+    COUNT(*) as [Service Count]
+FROM (
+    SELECT 
+        n.NodeID,
+        AVG(rt.Availability) as AvgAvailability
+    FROM Orion.Nodes n
+    INNER JOIN Orion.ResponseTime rt ON n.NodeID = rt.NodeID
+    WHERE rt.DateTime >= DATEADD(day, -30, GETDATE())
+        AND n.ObjectSubType IN ('SNMP', 'WMI')
+    GROUP BY n.NodeID
+) sub
+GROUP BY 
+    CASE 
+        WHEN AvgAvailability >= 99.9 THEN 'Excellent (≥99.9%)'
+        WHEN AvgAvailability >= 99.5 THEN 'Good (≥99.5%)'
+        WHEN AvgAvailability >= 95.0 THEN 'Poor (≥95%)'
+        ELSE 'Critical (<95%)'
+    END
+ORDER BY [Service Count] DESC
+
+-- PROPORTIONAL 4: Alert Severity Distribution (Last 30 Days)
+SELECT 
+    CASE 
+        WHEN ad.Severity = 0 THEN 'Informational'
+        WHEN ad.Severity = 1 THEN 'Warning'
+        WHEN ad.Severity = 2 THEN 'Critical'
+        ELSE 'Unknown'
+    END as [Severity],
+    COUNT(*) as [Alert Count]
+FROM Orion.AlertHistory ah
+INNER JOIN Orion.AlertDefinitions ad ON ah.AlertDefID = ad.AlertDefID
+WHERE ah.TriggeredDateTime >= DATEADD(day, -30, GETDATE())
+GROUP BY ad.Severity
+ORDER BY [Alert Count] DESC
+
+-- ==================================================
+-- DRILLDOWN WIDGETS (Interactive Navigation)
+-- ==================================================
+
+-- DRILLDOWN 1: Infrastructure Health by Location
+SELECT 
+    ISNULL(n.CustomProperties.Location, 'Unknown Location') as [Location],
+    COUNT(*) as [Total Services],
+    COUNT(CASE WHEN n.Status = 1 THEN 1 END) as [Services Up],
+    COUNT(CASE WHEN n.Status = 2 THEN 1 END) as [Services Down],
+    COUNT(CASE WHEN n.Status = 3 THEN 1 END) as [Services Warning],
+    ROUND((COUNT(CASE WHEN n.Status = 1 THEN 1 END) * 100.0 / COUNT(*)), 1) as [Availability %],
+    '/Orion/NetPerfMon/NodeDetails.aspx?NetObject=N:' + CAST(MIN(n.NodeID) as VARCHAR) as [DrilldownURL]
+FROM Orion.Nodes n
+WHERE n.ObjectSubType IN ('SNMP', 'WMI')
+GROUP BY n.CustomProperties.Location
+ORDER BY [Availability %] DESC
+
+-- DRILLDOWN 2: Service Tier Performance Summary  
+SELECT 
+    ISNULL(n.CustomProperties.ServiceTier, 'Standard') as [Service Tier],
+    COUNT(*) as [Service Count],
+    ROUND(AVG(rt.Availability), 2) as [Avg Availability %],
+    COUNT(CASE WHEN rt.Availability >= 99.9 THEN 1 END) as [Meeting SLA],
+    SUM(CASE WHEN rt.Availability < 100 THEN (100 - rt.Availability) END) as [Total Downtime],
+    '/Orion/NetPerfMon/NodesWithProblems.aspx' as [DrilldownURL]
+FROM Orion.Nodes n
+LEFT JOIN Orion.ResponseTime rt ON n.NodeID = rt.NodeID
+WHERE rt.DateTime >= DATEADD(day, -30, GETDATE())
+    AND n.ObjectSubType IN ('SNMP', 'WMI')
+GROUP BY n.CustomProperties.ServiceTier
+ORDER BY [Avg Availability %] DESC
+
+-- ==================================================
+-- MAP WIDGETS (Geographical/Network Visualization)
+-- ==================================================
+
+-- MAP 1: Node Status with Geographic Information
+SELECT 
+    n.NodeID,
+    n.Caption as [Name],
+    n.IP_Address as [IP Address],
+    CASE 
+        WHEN n.Status = 1 THEN 'Up'
+        WHEN n.Status = 2 THEN 'Down' 
+        WHEN n.Status = 3 THEN 'Warning'
+        ELSE 'Unknown'
+    END as [Status],
+    n.Status as [StatusID],
+    ISNULL(n.CustomProperties.Latitude, 0) as [Latitude],
+    ISNULL(n.CustomProperties.Longitude, 0) as [Longitude],
+    ISNULL(n.CustomProperties.Location, 'Unknown') as [Location],
+    ROUND(AVG(rt.Availability), 2) as [Availability],
+    '/Orion/NetPerfMon/NodeDetails.aspx?NetObject=N:' + CAST(n.NodeID as VARCHAR) as [DetailsURL]
+FROM Orion.Nodes n
+LEFT JOIN Orion.ResponseTime rt ON n.NodeID = rt.NodeID 
+    AND rt.DateTime >= DATEADD(day, -7, GETDATE())
+WHERE n.ObjectSubType IN ('SNMP', 'WMI')
+    AND (n.CustomProperties.Latitude IS NOT NULL OR n.CustomProperties.Location IS NOT NULL)
+GROUP BY n.NodeID, n.Caption, n.IP_Address, n.Status, 
+         n.CustomProperties.Latitude, n.CustomProperties.Longitude, 
+         n.CustomProperties.Location
+ORDER BY n.Caption
+
+-- MAP 2: Network Topology Status (If using NPM Topology)
+SELECT 
+    n.NodeID,
+    n.Caption as [Device Name],
+    n.IP_Address,
+    n.Status as [StatusID],
+    CASE 
+        WHEN n.Status = 1 THEN 'Up'
+        WHEN n.Status = 2 THEN 'Down'
+        WHEN n.Status = 3 THEN 'Warning'
+        ELSE 'Unknown'
+    END as [Status],
+    n.MachineType as [Device Type],
+    n.IOSVersion as [Version],
+    ISNULL(n.CustomProperties.Site, 'Main') as [Site]
+FROM Orion.Nodes n
+WHERE n.ObjectSubType IN ('SNMP', 'WMI')
+    AND n.IP_Address IS NOT NULL
+ORDER BY n.Caption
+
+-- ==================================================
+-- IMPLEMENTATION NOTES:
+-- ==================================================
+-- KPI Widgets: Use single-value queries for summary metrics
+-- Table Widgets: Multi-column results with sorting capabilities  
+-- Proportional Widgets: Two-column results (Category, Value) for pie/donut charts
+-- Drilldown Widgets: Include DrilldownURL column for navigation
+-- Map Widgets: Require Latitude/Longitude or network topology data
+-- 
+-- Customize CustomProperties references based on your environment:
+-- - Location, ServiceTier, ServiceCategory, Site, etc.
+-- 
+-- Test all queries in SWQL Studio before implementing
+-- ==================================================
