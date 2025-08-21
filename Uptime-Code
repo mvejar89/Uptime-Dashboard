@@ -198,8 +198,25 @@ WHERE a.DateTime >= TODATE(YEAR(ADDMONTH(-1, GETDATE())), MONTH(ADDMONTH(-1, GET
   AND n.Status = 1
 
 -- For debugging: Check your date calculations
+-- Date Range Verification Query for SWQL
 SELECT 
-    GETDATE() AS CurrentDate,
-    ADDMONTH(-1, GETDATE()) AS LastMonth,
-    MONTH(ADDMONTH(-1, GETDATE())) AS LastMonthNumber,
-    YEAR(ADDMONTH(-1, GETDATE())) AS LastMonthYear
+    'Previous Month Date Range' AS [Verification],
+    MONTH(ADDMONTH(-1, GETDATE())) AS [Previous Month Number],
+    YEAR(ADDMONTH(-1, GETDATE())) AS [Previous Month Year],
+    MIN(a.DateTime) AS [Earliest Data Found],
+    MAX(a.DateTime) AS [Latest Data Found],
+    COUNT(*) AS [Total Records]
+FROM Orion.ResponseTime a
+WHERE MONTH(a.DateTime) = MONTH(ADDMONTH(-1, GETDATE()))
+  AND YEAR(a.DateTime) = YEAR(ADDMONTH(-1, GETDATE()))
+
+-- Quick current vs previous month comparison
+SELECT 
+    'Current Month' AS [Period],
+    MONTH(GETDATE()) AS [Month],
+    YEAR(GETDATE()) AS [Year]
+UNION ALL
+SELECT 
+    'Previous Month' AS [Period],
+    MONTH(ADDMONTH(-1, GETDATE())) AS [Month],
+    YEAR(ADDMONTH(-1, GETDATE())) AS [Year]
